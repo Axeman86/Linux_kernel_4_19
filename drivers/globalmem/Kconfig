@@ -1,0 +1,14 @@
+#
+# globalmem configure
+#
+
+menu "Global Memory Device Driver Configuration"
+comment "Glocal Memeory Char Device Driver"
+
+config GLOBALMEM
+    tristate "Global Memory Char Device Driver"
+    default n
+    help
+      This is a simple global memory device driver.
+
+endmenu
