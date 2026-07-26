@@ -15,6 +15,7 @@
 #define GLOBALMEM_SIZE 0x1000
 #define MEM_CLEAR 0x1
 #define GLOBALMEM_MAJOR 230
+#define DEVICE_NUM 10
 
 static int globalmem_major = GLOBALMEM_MAJOR;
 module_param(globalmem_major, int, S_IRUGO);
@@ -28,7 +29,8 @@ struct globalmem_dev *globalmem_devp;
 
 static int globalmem_open(struct inode *inode, struct file *filp)
 {
-	filp->private_data = globalmem_devp;
+	filp->private_data =
+		container_of(inode->i_cdev, struct globalmem_dev, cdev);
 	return 0;
 }
 
@@ -165,41 +167,44 @@ static void globalmem_setup_cdev(struct globalmem_dev *dev, int index)
 
 static int __init globalmem_init(void)
 {
-	int ret;
+	int ret = 0;
 	dev_t devno = MKDEV(globalmem_major, 0);
 
 	if (globalmem_major)
-		ret = register_chrdev_region(devno, 1, "globalmem");
+		ret = register_chrdev_region(devno, DEVICE_NUM, "globalmem");
 	else {
-		ret = alloc_chrdev_region(&devno, 0, 1, "globalmem");
+		ret = alloc_chrdev_region(&devno, 0, DEVICE_NUM, "globalmem");
 		globalmem_major = MAJOR(devno);
 	}
 
 	if (ret < 0)
 		return ret;
 
-	globalmem_devp = kmalloc(sizeof(struct globalmem_dev), GFP_KERNEL);
+	globalmem_devp =
+		kzalloc(sizeof(struct globalmem_dev) * DEVICE_NUM, GFP_KERNEL);
 	if (!globalmem_devp) {
 		ret = -ENOMEM;
 		goto fail_malloc;
 	}
-	memset(globalmem_devp, 0, sizeof(struct globalmem_dev));
 
-	globalmem_setup_cdev(globalmem_devp, 0);
+	for (int i = 0; i < DEVICE_NUM; i++)
+		globalmem_setup_cdev(globalmem_devp + i, i);
 
 	return 0;
 
 fail_malloc:
-	unregister_chrdev_region(devno, 1);
+	unregister_chrdev_region(devno, DEVICE_NUM);
 	return ret;
 }
 module_init(globalmem_init);
 
 static void __exit globalmem_exit(void)
 {
-	cdev_del(&globalmem_devp->cdev);
+	int i = 0;
+	for (i = 0; i < DEVICE_NUM; i++)
+		cdev_del(&(globalmem_devp + i)->cdev);
 	kfree(globalmem_devp);
-	unregister_chrdev_region(MKDEV(globalmem_major, 0), 1);
+	unregister_chrdev_region(MKDEV(globalmem_major, 0), DEVICE_NUM);
 }
 module_exit(globalmem_exit);
 
