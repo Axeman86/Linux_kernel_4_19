@@ -197,7 +197,6 @@ module_init(globalmem_init);
 
 static void __exit globalmem_exit(void)
 {
-	int i = 0;
 	cdev_del(&(globalmem_devp + 0)->cdev);
 	kfree(globalmem_devp);
 	unregister_chrdev_region(MKDEV(globalmem_major, 0), 1);
