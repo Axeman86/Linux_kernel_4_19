@@ -188,3 +188,4 @@ obj-$(CONFIG_SIOX)		+= siox/
 obj-$(CONFIG_GNSS)		+= gnss/
 
 obj-$(CONFIG_GLOBALMEM)		+= globalmem/
+obj-$(CONFIG_GLOBALFIFO)	+= globalfifo/

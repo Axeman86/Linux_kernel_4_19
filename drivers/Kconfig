@@ -221,4 +221,6 @@ source "drivers/slimbus/Kconfig"
 
 source "drivers/globalmem/Kconfig"
 
+source "drivers/globalfifo/Kconfig"
+
 endmenu

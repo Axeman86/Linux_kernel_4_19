@@ -15,7 +15,7 @@
 #define GLOBALMEM_SIZE 0x1000
 #define MEM_CLEAR 0x1
 #define GLOBALMEM_MAJOR 230
-#define DEVICE_NUM 10
+#define DEVICE_NUM 1
 
 static int globalmem_major = GLOBALMEM_MAJOR;
 module_param(globalmem_major, int, S_IRUGO);
@@ -209,8 +209,7 @@ module_init(globalmem_init);
 
 static void __exit globalmem_exit(void)
 {
-	int i = 0;
-	for (i = 0; i < DEVICE_NUM; i++)
+	for (int i = 0; i < DEVICE_NUM; i++)
 		cdev_del(&(globalmem_devp + i)->cdev);
 	kfree(globalmem_devp);
 	unregister_chrdev_region(MKDEV(globalmem_major, 0), DEVICE_NUM);

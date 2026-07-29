@@ -1,0 +1,14 @@
+#
+# globalmem configure
+#
+
+menu "Global FiFo Device Driver Configuration"
+comment "Glocal FiFo Char Device Driver"
+
+config GLOBALFIFO
+    tristate "Global FiFo Char Device Driver"
+    default n
+    help
+      This is a simple global fifo device driver.
+
+endmenu
