@@ -4,4 +4,4 @@
 #
 
 obj-$(CONFIG_GLOBALFIFO) += ch8/globalfifo.o
-obj-$(CONFIG_GLOBALFIFO) += ch9/globalfifo_poll.o
+obj-$(CONFIG_GLOBALFIFO) += ch9/globalfifo.o
