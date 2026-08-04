@@ -16,6 +16,7 @@
 #include <linux/wait.h>
 #include <linux/sched/signal.h>
 #include <linux/poll.h>
+#include <linux/uio.h>
 
 #define GLOBALFIFO_SIZE 0x1000
 #define MEM_CLEAR 0x1
@@ -75,17 +76,32 @@ static long global_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	return 0;
 }
 
-static ssize_t globalfifo_read(struct file *filp, char __user *buf, size_t size,
-			       loff_t *ppos)
+/* Shared copyout adapters */
+static size_t globalfifo_copyout_user(void *ctx, const char *src, size_t n)
 {
-	unsigned long p = *ppos;
-	unsigned int count = size;
+	char __user *buf = ctx;
+
+	if (copy_to_user(buf, src, n))
+		return 0;
+	return n;
+}
+
+static size_t globalfifo_copyout_iter(void *ctx, const char *src, size_t n)
+{
+	struct iov_iter *to = ctx;
+
+	return copy_to_iter(src, n, to);
+}
+
+/* Shared read core */
+static ssize_t globalfifo_do_read(struct file *filp, size_t count,
+				  size_t (*copyout)(void *ctx, const char *src,
+						    size_t n),
+				  void *ctx)
+{
 	int ret = 0;
 	struct globalfifo_dev *dev = filp->private_data;
 	DECLARE_WAITQUEUE(wait, current);
-
-	if (p >= GLOBALFIFO_SIZE)
-		return 0;
 
 	mutex_lock(&dev->mutex);
 	add_wait_queue(&dev->r_wait, &wait);
@@ -95,31 +111,32 @@ static ssize_t globalfifo_read(struct file *filp, char __user *buf, size_t size,
 			ret = -EAGAIN;
 			goto out;
 		}
+
 		__set_current_state(TASK_INTERRUPTIBLE);
 		mutex_unlock(&dev->mutex);
+
 		schedule();
 		if (signal_pending(current)) {
 			ret = -ERESTARTSYS;
 			goto out2;
 		}
+
 		mutex_lock(&dev->mutex);
 	}
 
 	if (count > dev->current_len)
 		count = dev->current_len;
 
-	if (copy_to_user(buf, dev->mem, count)) {
+	if (copyout(ctx, dev->mem, count) != count) {
 		ret = -EFAULT;
 		goto out;
-	} else {
-		memcpy(dev->mem, dev->mem + count, dev->current_len - count);
-		dev->current_len -= count;
-		printk(KERN_INFO "read %u bytes(s), current_len:%d\n", count,
-		       dev->current_len);
-
-		wake_up_interruptible(&dev->w_wait);
-		ret = count;
 	}
+
+	memcpy(dev->mem, dev->mem + count, dev->current_len - count);
+	dev->current_len -= count;
+
+	wake_up_interruptible(&dev->w_wait);
+	ret = count;
 
 out:
 	mutex_unlock(&dev->mutex);
@@ -130,8 +147,51 @@ out2:
 	return ret;
 }
 
-static ssize_t globalfifo_write(struct file *filp, const char __user *buf,
-				size_t count, loff_t *ppos)
+/* Legacy read(2) path */
+static ssize_t globalfifo_read(struct file *filp, char __user *buf,
+			       size_t count, loff_t *ppos)
+{
+	ssize_t ret =
+		globalfifo_do_read(filp, count, globalfifo_copyout_user, buf);
+
+	if (ret > 0 && ppos)
+		*ppos += ret;
+
+	return ret;
+}
+
+/* read_iter path */
+static ssize_t globalfifo_read_iter(struct kiocb *iocb, struct iov_iter *to)
+{
+	size_t count = iov_iter_count(to);
+	ssize_t ret = globalfifo_do_read(iocb->ki_filp, count,
+					 globalfifo_copyout_iter, to);
+
+	if (ret > 0)
+		iocb->ki_pos += ret;
+
+	return ret;
+}
+
+static size_t globalfifo_copyin_user(void *ctx, char *dst, size_t n)
+{
+	const char __user *buf = ctx;
+
+	if (copy_from_user(dst, buf, n))
+		return 0;
+	return n;
+}
+
+static size_t globalfifo_copyin_iter(void *ctx, char *dst, size_t n)
+{
+	struct iov_iter *from = ctx;
+
+	return copy_from_iter(dst, n, from);
+}
+
+static ssize_t
+globalfifo_do_write(struct file *filp, size_t count,
+		    size_t (*copyin)(void *ctx, char *dst, size_t n), void *ctx)
 {
 	int ret = 0;
 	struct globalfifo_dev *dev = filp->private_data;
@@ -161,29 +221,53 @@ static ssize_t globalfifo_write(struct file *filp, const char __user *buf,
 	if (count > GLOBALFIFO_SIZE - dev->current_len)
 		count = GLOBALFIFO_SIZE - dev->current_len;
 
-	if (copy_from_user(dev->mem + dev->current_len, buf, count)) {
+	if (copyin(ctx, dev->mem + dev->current_len, count) != count) {
 		ret = -EFAULT;
 		goto out;
-	} else {
-		dev->current_len += count;
-		printk(KERN_INFO "written %u bytes(s), current_len:%d\n", count,
-		       dev->current_len);
-
-		wake_up_interruptible(&dev->r_wait);
-
-		if (dev->async_queue) {
-			kill_fasync(&dev->async_queue, SIGIO, POLL_IN);
-			printk(KERN_INFO "%s send SIGIO to user\n", __func__);
-		}
-
-		ret = count;
 	}
+
+	dev->current_len += count;
+	printk(KERN_INFO "written %zu bytes(s), current_len:%d\n", count,
+	       dev->current_len);
+
+	wake_up_interruptible(&dev->r_wait);
+
+	if (dev->async_queue) {
+		kill_fasync(&dev->async_queue, SIGIO, POLL_IN);
+		printk(KERN_INFO "%s send SIGIO to user\n", __func__);
+	}
+
+	ret = count;
 
 out:
 	mutex_unlock(&dev->mutex);
 out2:
 	remove_wait_queue(&dev->w_wait, &wait);
 	set_current_state(TASK_RUNNING);
+
+	return ret;
+}
+
+static ssize_t globalfifo_write(struct file *filp, const char __user *buf,
+				size_t count, loff_t *ppos)
+{
+	ssize_t ret = globalfifo_do_write(filp, count, globalfifo_copyin_user,
+					  (void *)buf);
+
+	if (ret > 0 && ppos)
+		*ppos += ret;
+
+	return ret;
+}
+
+static ssize_t globalfifo_write_iter(struct kiocb *iocb, struct iov_iter *from)
+{
+	size_t count = iov_iter_count(from);
+	ssize_t ret = globalfifo_do_write(iocb->ki_filp, count,
+					  globalfifo_copyin_iter, from);
+
+	if (ret > 0)
+		iocb->ki_pos += ret;
 
 	return ret;
 }
@@ -254,6 +338,8 @@ static const struct file_operations globalfifo_fops = {
 	.llseek = globalfifo_llseek,
 	.read = globalfifo_read,
 	.write = globalfifo_write,
+	.read_iter = globalfifo_read_iter,
+	.write_iter = globalfifo_write_iter,
 	.poll = globalfifo_poll,
 	.unlocked_ioctl = global_ioctl,
 	.open = globalfifo_open,
