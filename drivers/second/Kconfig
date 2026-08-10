@@ -1,0 +1,14 @@
+#
+# globalmem configure
+#
+
+menu "Second Device Driver Configuration"
+comment "Second Char Device Driver"
+
+config SECOND
+    tristate "Second Char Device Driver"
+    default n
+    help
+      This is a simple global second device driver.
+
+endmenu

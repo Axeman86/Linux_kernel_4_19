@@ -189,3 +189,4 @@ obj-$(CONFIG_GNSS)		+= gnss/
 
 obj-$(CONFIG_GLOBALMEM)		+= globalmem/
 obj-$(CONFIG_GLOBALFIFO)	+= globalfifo/
+obj-$(CONFIG_SECOND)			+= second/

@@ -45,6 +45,17 @@ static int globalfifo_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+/**
+* @brief globalfifo_fasync 如果没有定义.fasync = globalfifo_fasync,
+* 则在上层应用使用异步通知机制 fcntl(F_SETFL, O_ASYNC) 时就会出错
+* 异步信号通知能力,`F_SETOWN` 指定接收者后，也收不到 `SIGIO/SIGPOLL`
+*
+* @param fd
+* @param filp
+* @param mode
+*
+* @return sucesss returns 0, fail returns -ENOMEM
+*/
 static int globalfifo_fasync(int fd, struct file *filp, int mode)
 {
 	struct globalfifo_dev *dev = filp->private_data;
@@ -311,6 +322,14 @@ static loff_t globalfifo_llseek(struct file *filp, loff_t offset, int orig)
 	return ret;
 }
 
+/**
+* @brief globalfifo_poll 如果未定义.poll = globalfifo_poll, 则在上层应用使用轮询机制 select/poll/epoll 时就会出错
+*
+* @param filp file_operations struct address
+* @param wait poll_table_struct struct address
+*
+* @return suceess returhns mask, fail returns 0
+*/
 static unsigned int globalfifo_poll(struct file *filp,
 				    struct poll_table_struct *wait)
 {

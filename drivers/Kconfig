@@ -223,4 +223,6 @@ source "drivers/globalmem/Kconfig"
 
 source "drivers/globalfifo/Kconfig"
 
+source "drivers/second/Kconfig"
+
 endmenu
