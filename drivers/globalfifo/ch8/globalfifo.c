@@ -81,14 +81,19 @@ static ssize_t globalfifo_read(struct file *filp, char __user *buf, size_t size,
 	mutex_lock(&dev->mutex);
 	add_wait_queue(&dev->r_wait, &wait);
 
-	while (dev->current_len == 0) {
+	while (dev->current_len == 0) { // FIFO is empty
 		if (filp->f_flags & O_NONBLOCK) {
 			ret = -EAGAIN;
 			goto out;
 		}
+
+		// Set interruptible flag for current process
 		__set_current_state(TASK_INTERRUPTIBLE);
 		mutex_unlock(&dev->mutex);
-		schedule();
+
+		schedule(); // entry interruptible
+
+		// return ERESTARTSYS when wake up source is signal_pending
 		if (signal_pending(current)) {
 			ret = -ERESTARTSYS;
 			goto out2;
@@ -108,6 +113,7 @@ static ssize_t globalfifo_read(struct file *filp, char __user *buf, size_t size,
 		printk(KERN_INFO "read %u bytes(s), current_len:%d\n", count,
 		       dev->current_len);
 
+		// wake up w_wait interruptible
 		wake_up_interruptible(&dev->w_wait);
 		ret = count;
 	}
@@ -131,16 +137,18 @@ static ssize_t globalfifo_write(struct file *filp, const char __user *buf,
 	mutex_lock(&dev->mutex);
 	add_wait_queue(&dev->w_wait, &wait);
 
-	while (dev->current_len == GLOBALFIFO_SIZE) {
+	while (dev->current_len == GLOBALFIFO_SIZE) { // FIFO is full
 		if (filp->f_flags & O_NONBLOCK) {
 			ret = -EAGAIN;
 			goto out;
 		}
+		// Set interruptible flag for current process
 		__set_current_state(TASK_INTERRUPTIBLE);
 
 		mutex_unlock(&dev->mutex);
 
-		schedule();
+		schedule(); // entry interruptible
+		// return ERESTARTSYS when wake up source is signal_pending
 		if (signal_pending(current)) {
 			ret = -ERESTARTSYS;
 			goto out2;
@@ -159,7 +167,7 @@ static ssize_t globalfifo_write(struct file *filp, const char __user *buf,
 		dev->current_len += count;
 		printk(KERN_INFO "written %u bytes(s), current_len:%d\n", count,
 		       dev->current_len);
-
+		// wake up r_wait interruptible
 		wake_up_interruptible(&dev->r_wait);
 		ret = count;
 	}

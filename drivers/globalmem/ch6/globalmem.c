@@ -5,6 +5,7 @@
  *
  */
 
+#include "linux/vmstat.h"
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/init.h>
